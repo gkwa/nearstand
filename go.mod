@@ -3,6 +3,7 @@ module github.com/gkwa/nearstand
 go 1.23.0
 
 require (
+	github.com/dustin/go-humanize v1.0.1
 	github.com/fatih/color v1.17.0
 	github.com/go-git/go-git/v5 v5.12.0
 	github.com/go-logr/logr v1.4.2
