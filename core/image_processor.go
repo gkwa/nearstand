@@ -27,6 +27,7 @@ type TotalStats struct {
 	OriginalSize int64
 	ShrunkSize   int64
 	FileCount    int
+	SkippedCount int
 }
 
 func NewImageProcessor(shrinker ImageShrinker, logger logr.Logger, writer io.Writer) *ImageProcessor {
@@ -65,10 +66,14 @@ func (ip *ImageProcessor) processFileOrDirectory(target string, reshrink bool) e
 func (ip *ImageProcessor) processDirectory(dirPath string, reshrink bool) error {
 	return filepath.Walk(dirPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
-			return err
+			ip.logger.Error(err, "Error accessing file", "path", path)
+			return nil
 		}
 		if !info.IsDir() {
-			return ip.processFile(path, reshrink)
+			err := ip.processFile(path, reshrink)
+			if err != nil {
+				ip.logger.Error(err, "Error processing file", "path", path)
+			}
 		}
 		return nil
 	})
@@ -77,12 +82,18 @@ func (ip *ImageProcessor) processDirectory(dirPath string, reshrink bool) error 
 func (ip *ImageProcessor) processFile(filePath string, reshrink bool) error {
 	if !reshrink && strings.HasPrefix(filepath.Base(filePath), "shrunk_") {
 		ip.logger.Info("Skipping already shrunk image", "file", filePath)
+		ip.incrementSkippedCount()
 		return nil
 	}
 
-	ip.logger.Info("Shrinking image", "file", filePath)
+	ip.logger.Info("Attempting to shrink image", "file", filePath)
 	outputPath, err := ip.shrinker.Shrink(filePath)
 	if err != nil {
+		if strings.Contains(err.Error(), "unsupported file format") {
+			ip.logger.Info("Skipping unsupported file", "file", filePath)
+			ip.incrementSkippedCount()
+			return nil
+		}
 		return err
 	}
 
@@ -107,9 +118,17 @@ func (ip *ImageProcessor) updateStats(originalSize, newSize int64) error {
 	return nil
 }
 
+func (ip *ImageProcessor) incrementSkippedCount() {
+	ip.statsMutex.Lock()
+	defer ip.statsMutex.Unlock()
+
+	ip.totalStats.SkippedCount++
+}
+
 func (ip *ImageProcessor) printAggregateStats() {
 	fmt.Fprintln(ip.writer, "\nAggregate Statistics:")
 	fmt.Fprintf(ip.writer, "Total files processed: %s\n", ip.printer.Sprintf("%d", ip.totalStats.FileCount))
+	fmt.Fprintf(ip.writer, "Total files skipped: %s\n", ip.printer.Sprintf("%d", ip.totalStats.SkippedCount))
 	fmt.Fprintf(ip.writer, "Total original size: %s\n", humanize.Bytes(uint64(ip.totalStats.OriginalSize)))
 	fmt.Fprintf(ip.writer, "Total reduced size: %s\n", humanize.Bytes(uint64(ip.totalStats.ShrunkSize)))
 	reductionSize := ip.totalStats.OriginalSize - ip.totalStats.ShrunkSize

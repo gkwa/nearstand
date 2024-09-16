@@ -1,8 +1,8 @@
 # nearstand
 
-Purpose:
 
-Nearstand is a command-line tool designed to efficiently shrink image files while maintaining acceptable quality. It's particularly useful for batch processing large numbers of images or entire directories.
+Purpose:
+Nearstand is a command-line tool to shrink image files while maintaining acceptable quality. It's particularly useful for batch processing large numbers of images or entire directories.
 
 ## Features
 
@@ -42,7 +42,6 @@ brew install gkwa/homebrew-tools/nearstand
 ```
 
 On Windows:
-
 ```powershell
 TBD
 ```
@@ -52,7 +51,6 @@ TBD
 Nearstand can be configured using a YAML file. By default, it looks for `.nearstand.yaml` in your home directory. You can specify a different config file using the `--config` flag.
 
 Example configuration:
-
 ```yaml
 verbose: true
 log-format: json
@@ -60,7 +58,7 @@ log-format: json
 
 ## Requirements
 
-- ImageMagick must be installed on your system
+- [ImageMagick](https://github.com/ImageMagick/ImageMagick) must be installed on your system. Nearstand currently depends on ImageMagick for image processing operations.
 
 ## Building from Source
 
