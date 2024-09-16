@@ -2,12 +2,15 @@ package core
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sync"
 
 	"github.com/dustin/go-humanize"
 	"github.com/go-logr/logr"
+	"golang.org/x/text/language"
+	"golang.org/x/text/message"
 )
 
 type ImageProcessor struct {
@@ -15,6 +18,8 @@ type ImageProcessor struct {
 	logger     logr.Logger
 	totalStats TotalStats
 	statsMutex sync.Mutex
+	writer     io.Writer
+	printer    *message.Printer
 }
 
 type TotalStats struct {
@@ -23,10 +28,12 @@ type TotalStats struct {
 	FileCount    int
 }
 
-func NewImageProcessor(shrinker ImageShrinker, logger logr.Logger) *ImageProcessor {
+func NewImageProcessor(shrinker ImageShrinker, logger logr.Logger, writer io.Writer) *ImageProcessor {
 	return &ImageProcessor{
 		shrinker: shrinker,
 		logger:   logger,
+		writer:   writer,
+		printer:  message.NewPrinter(language.English),
 	}
 }
 
@@ -68,15 +75,22 @@ func (ip *ImageProcessor) processDirectory(dirPath string) error {
 
 func (ip *ImageProcessor) processFile(filePath string) error {
 	ip.logger.Info("Shrinking image", "file", filePath)
-	return ip.shrinkAndUpdateStats(filePath)
-}
-
-func (ip *ImageProcessor) shrinkAndUpdateStats(input string) error {
-	originalSize, newSize, err := ip.shrinker.ShrinkAndGetSizes(input)
+	outputPath, err := ip.shrinker.Shrink(filePath)
 	if err != nil {
 		return err
 	}
 
+	originalSize, newSize, err := ip.shrinker.GetSizes(filePath, outputPath)
+	if err != nil {
+		return err
+	}
+
+	ip.shrinker.PrintStats(ip.writer, filePath, outputPath, originalSize, newSize)
+
+	return ip.updateStats(originalSize, newSize)
+}
+
+func (ip *ImageProcessor) updateStats(originalSize, newSize int64) error {
 	ip.statsMutex.Lock()
 	defer ip.statsMutex.Unlock()
 
@@ -88,11 +102,11 @@ func (ip *ImageProcessor) shrinkAndUpdateStats(input string) error {
 }
 
 func (ip *ImageProcessor) printAggregateStats() {
-	fmt.Println("\nAggregate Statistics:")
-	fmt.Printf("Total files processed: %d\n", ip.totalStats.FileCount)
-	fmt.Printf("Total original size: %s\n", humanize.Bytes(uint64(ip.totalStats.OriginalSize)))
-	fmt.Printf("Total shrunk size: %s\n", humanize.Bytes(uint64(ip.totalStats.ShrunkSize)))
+	fmt.Fprintln(ip.writer, "\nAggregate Statistics:")
+	fmt.Fprintf(ip.writer, "Total files processed: %s\n", ip.printer.Sprintf("%d", ip.totalStats.FileCount))
+	fmt.Fprintf(ip.writer, "Total original size: %s\n", humanize.Bytes(uint64(ip.totalStats.OriginalSize)))
+	fmt.Fprintf(ip.writer, "Total reduced size: %s\n", humanize.Bytes(uint64(ip.totalStats.ShrunkSize)))
 	reductionSize := ip.totalStats.OriginalSize - ip.totalStats.ShrunkSize
 	reductionPercentage := float64(reductionSize) / float64(ip.totalStats.OriginalSize) * 100
-	fmt.Printf("Total size reduction: %s (%.2f%%)\n", humanize.Bytes(uint64(reductionSize)), reductionPercentage)
+	fmt.Fprintf(ip.writer, "Total size reduction: %s (%.2f%%)\n", humanize.Bytes(uint64(reductionSize)), reductionPercentage)
 }

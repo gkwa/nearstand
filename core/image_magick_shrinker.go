@@ -2,14 +2,20 @@ package core
 
 import (
 	"fmt"
+	"io"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/dustin/go-humanize"
+	"golang.org/x/text/language"
+	"golang.org/x/text/message"
 )
 
 type ImageShrinker interface {
-	ShrinkAndGetSizes(input string) (int64, int64, error)
+	Shrink(input string) (string, error)
+	GetSizes(input, output string) (int64, int64, error)
+	PrintStats(w io.Writer, input, output string, originalSize, newSize int64)
 }
 
 type FileManager interface {
@@ -18,24 +24,22 @@ type FileManager interface {
 
 type ImageMagickShrinker struct {
 	fileManager FileManager
+	printer     *message.Printer
 }
 
 func NewImageMagickShrinker(fm FileManager) *ImageMagickShrinker {
-	return &ImageMagickShrinker{fileManager: fm}
+	return &ImageMagickShrinker{
+		fileManager: fm,
+		printer:     message.NewPrinter(language.English),
+	}
 }
 
-func (ims *ImageMagickShrinker) ShrinkAndGetSizes(input string) (int64, int64, error) {
-	ext := filepath.Ext(input)
-	if ext != ".jpg" && ext != ".jpeg" && ext != ".png" && ext != ".gif" {
-		return 0, 0, fmt.Errorf("unsupported file format: %s", ext)
+func (ims *ImageMagickShrinker) Shrink(input string) (string, error) {
+	if err := ims.validateFileFormat(input); err != nil {
+		return "", err
 	}
 
-	originalSize, err := ims.fileManager.GetFileSize(input)
-	if err != nil {
-		return 0, 0, fmt.Errorf("error getting original file size: %w", err)
-	}
-
-	outputPath := filepath.Join(filepath.Dir(input), "shrunk_"+filepath.Base(input))
+	outputPath := ims.generateOutputPath(input)
 
 	cmd := exec.Command(
 		"convert", input,
@@ -43,41 +47,49 @@ func (ims *ImageMagickShrinker) ShrinkAndGetSizes(input string) (int64, int64, e
 		"-quality", "60",
 		outputPath,
 	)
-	err = cmd.Run()
-	if err != nil {
-		return 0, 0, fmt.Errorf("error executing ImageMagick command: %w", err)
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("error executing ImageMagick command: %w", err)
 	}
 
-	tileCmd := exec.Command(
-		"convert", outputPath,
-		"-crop", "1024x768",
-		filepath.Join(filepath.Dir(input), "tile_%d.jpg"),
-	)
-	err = tileCmd.Run()
+	return outputPath, nil
+}
+
+func (ims *ImageMagickShrinker) validateFileFormat(input string) error {
+	ext := strings.ToLower(filepath.Ext(input))
+	if ext != ".jpg" && ext != ".jpeg" && ext != ".png" && ext != ".gif" {
+		return fmt.Errorf("unsupported file format: %s", ext)
+	}
+	return nil
+}
+
+func (ims *ImageMagickShrinker) GetSizes(input, output string) (int64, int64, error) {
+	originalSize, err := ims.fileManager.GetFileSize(input)
 	if err != nil {
-		return 0, 0, fmt.Errorf("error splitting shrunk image into tiles: %w", err)
+		return 0, 0, fmt.Errorf("error getting original file size: %w", err)
 	}
 
-	newSize, err := ims.fileManager.GetFileSize(outputPath)
+	newSize, err := ims.fileManager.GetFileSize(output)
 	if err != nil {
 		return 0, 0, fmt.Errorf("error getting new file size: %w", err)
 	}
 
-	ims.printStats(input, outputPath, originalSize, newSize)
-
 	return originalSize, newSize, nil
 }
 
-func (ims *ImageMagickShrinker) printStats(input, outputPath string, originalSize, newSize int64) {
-	fmt.Println("Metric             Before   After    Change")
-	fmt.Println("------             ------   -----    ------")
-	fmt.Printf("%-18s %-8s %-8s %s%s\n", "File Size",
+func (ims *ImageMagickShrinker) PrintStats(w io.Writer, input, output string, originalSize, newSize int64) {
+	fmt.Fprintln(w, "Metric             Before   After    Change")
+	fmt.Fprintln(w, "------             ------   -----    ------")
+	fmt.Fprintf(w, "%-18s %-8s %-8s %s%s\n", "File Size",
 		humanize.Bytes(uint64(originalSize)),
 		humanize.Bytes(uint64(newSize)),
 		ims.sizeChangeSymbol(originalSize, newSize),
 		humanize.Bytes(uint64(abs(originalSize-newSize))))
-	fmt.Printf("%-18s %-8s %-8s\n", "File Path", input, outputPath)
-	fmt.Printf("Reduction: %.2f%%\n", (1-float64(newSize)/float64(originalSize))*100)
+	fmt.Fprintf(w, "%-18s %-8s %-8s\n", "File Path", input, output)
+	fmt.Fprintf(w, "Reduction: %.2f%%\n", (1-float64(newSize)/float64(originalSize))*100)
+}
+
+func (ims *ImageMagickShrinker) generateOutputPath(input string) string {
+	return filepath.Join(filepath.Dir(input), "shrunk_"+filepath.Base(input))
 }
 
 func (ims *ImageMagickShrinker) sizeChangeSymbol(originalSize, newSize int64) string {

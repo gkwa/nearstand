@@ -12,7 +12,7 @@ var shrinkCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		logger := LoggerFrom(cmd.Context())
 		shrinker := core.NewImageMagickShrinker(core.DefaultFileManager{})
-		processor := core.NewImageProcessor(shrinker, logger)
+		processor := core.NewImageProcessor(shrinker, logger, cmd.OutOrStdout())
 		return processor.ProcessFilesAndDirectories(args)
 	},
 }
