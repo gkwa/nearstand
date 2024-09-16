@@ -6,17 +6,14 @@ import (
 )
 
 var shrinkCmd = &cobra.Command{
-	Use:   "shrink [file_or_directory]",
+	Use:   "shrink file_or_directory [file_or_directory...]",
 	Short: "Shrink image file(s)",
-	Args:  cobra.ExactArgs(1),
+	Args:  cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		logger := LoggerFrom(cmd.Context())
-		target := args[0]
-
 		shrinker := core.NewImageMagickShrinker(core.DefaultFileManager{})
 		processor := core.NewImageProcessor(shrinker, logger)
-
-		return processor.Process(target)
+		return processor.ProcessFilesAndDirectories(args)
 	},
 }
 
