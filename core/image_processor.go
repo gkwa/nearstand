@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/dustin/go-humanize"
@@ -37,9 +38,9 @@ func NewImageProcessor(shrinker ImageShrinker, logger logr.Logger, writer io.Wri
 	}
 }
 
-func (ip *ImageProcessor) ProcessFilesAndDirectories(targets []string) error {
+func (ip *ImageProcessor) ProcessFilesAndDirectories(targets []string, reshrink bool) error {
 	for _, target := range targets {
-		err := ip.processFileOrDirectory(target)
+		err := ip.processFileOrDirectory(target, reshrink)
 		if err != nil {
 			ip.logger.Error(err, "Error processing target", "target", target)
 		}
@@ -49,31 +50,36 @@ func (ip *ImageProcessor) ProcessFilesAndDirectories(targets []string) error {
 	return nil
 }
 
-func (ip *ImageProcessor) processFileOrDirectory(target string) error {
+func (ip *ImageProcessor) processFileOrDirectory(target string, reshrink bool) error {
 	fileInfo, err := os.Stat(target)
 	if err != nil {
 		return err
 	}
 
 	if fileInfo.IsDir() {
-		return ip.processDirectory(target)
+		return ip.processDirectory(target, reshrink)
 	}
-	return ip.processFile(target)
+	return ip.processFile(target, reshrink)
 }
 
-func (ip *ImageProcessor) processDirectory(dirPath string) error {
+func (ip *ImageProcessor) processDirectory(dirPath string, reshrink bool) error {
 	return filepath.Walk(dirPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
 		if !info.IsDir() {
-			return ip.processFile(path)
+			return ip.processFile(path, reshrink)
 		}
 		return nil
 	})
 }
 
-func (ip *ImageProcessor) processFile(filePath string) error {
+func (ip *ImageProcessor) processFile(filePath string, reshrink bool) error {
+	if !reshrink && strings.HasPrefix(filepath.Base(filePath), "shrunk_") {
+		ip.logger.Info("Skipping already shrunk image", "file", filePath)
+		return nil
+	}
+
 	ip.logger.Info("Shrinking image", "file", filePath)
 	outputPath, err := ip.shrinker.Shrink(filePath)
 	if err != nil {
