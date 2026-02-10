@@ -2,7 +2,7 @@ module github.com/gkwa/nearstand
 
 go 1.25.0
 
-toolchain go1.25.7
+toolchain go1.26.0
 
 require (
 	github.com/dustin/go-humanize v1.0.1
